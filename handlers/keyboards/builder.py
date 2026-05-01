@@ -1,0 +1,11 @@
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+def get_resolution_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="480p", callback_data="res:480"),
+         InlineKeyboardButton(text="720p", callback_data="res:720")],
+        [InlineKeyboardButton(text="1080p", callback_data="res:1080"),
+         InlineKeyboardButton(text="2K", callback_data="res:2k")],
+        [InlineKeyboardButton(text="4K", callback_data="res:4k"),
+         InlineKeyboardButton(text="Власний", callback_data="res:custom")]
+    ])
