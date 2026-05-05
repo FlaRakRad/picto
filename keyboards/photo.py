@@ -12,3 +12,9 @@ def get_wm_kb():
         [InlineKeyboardButton(text="✅ Прибрати вотермарку", callback_data="wm:yes")],
         [InlineKeyboardButton(text="❌ Залишити як є", callback_data="wm:no")]
     ])
+
+
+def get_start_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 ПОЧАТИ ОБРОБКУ", callback_data="start_process")]
+    ])
