@@ -9,6 +9,6 @@ def get_resolution_kb():
 
 def get_wm_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Прибрати", callback_data="wm:yes"),
-         InlineKeyboardButton(text="❌ Залишити", callback_data="wm:no")]
+        [InlineKeyboardButton(text="✅ Прибрати вотермарку", callback_data="wm:yes")],
+        [InlineKeyboardButton(text="❌ Залишити як є", callback_data="wm:no")]
     ])
