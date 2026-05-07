@@ -5,9 +5,9 @@ from pathlib import Path
 from PIL import Image
 
 BASE_DIR = "/home/tabarejka/picto/"
-INPUT_DIR = os.path.join(BASE_DIR, "tmp/input")
-OUTPUT_DIR = os.path.join(BASE_DIR, "tmp/output")
-FAILED_DIR = os.path.join(BASE_DIR, "tmp/failed")
+INPUT_DIR = os.path.join(BASE_DIR, "tmp/upscaler/input")
+OUTPUT_DIR = os.path.join(BASE_DIR, "tmp/upscaler/output")
+FAILED_DIR = os.path.join(BASE_DIR, "tmp/upscaler/failed")
 MODEL_NAME = "realesr-animevideov3-x4"
 SCALE = 4
 
