@@ -1,0 +1,21 @@
+text = {
+    'lang_name': "🇵🇱 Polski",
+    'start': "👋 **Witaj!** Jestem PictoBot. Poprawiam Twoje zdjęcia za pomocą AI.\nWybierz język, aby kontynuować:",
+    'main_menu': "🏠 Menu główne. Co chcesz zrobić?",
+    'btn_process': "🖼 Przetwarzaj zdjęcia",
+    'btn_profile': "📊 Mój profil",
+    'btn_sub': "💎 Subskrypcja",
+    'btn_lang': "🌐 Zmień język",
+    'batch_received': "📦 Otrzymano **{count}** zdjęć.\nKliknij przycisk poniżej, aby rozpocząć.",
+    'btn_start_run': "🚀 ROZPOCZNIJ",
+    'processing': "⏳ **Przetwarzanie {count} zdjęć...**\nProszę czekać, jakość wymaga czasu.",
+    'done': "✨ **Sukces!** Twoje zdjęcia zostały poprawione.",
+    'profile': "👤 **Twój profil:**\n\n💰 Limity: `{limit}/{max}`\n🌐 Język: `Polski`",
+    'error': "❌ Coś poszło nie tak.",
+    'sub_title': "💎 **Wybierz swój plan:**\n\n✅ 15 zdjęć na cykl (3h)\n✅ Priorytetowa obsługa",
+    'sub_1': "1 Miesiąc — 20 PLN",
+    'sub_3': "3 Miesiące — 50 PLN",
+    'sub_6': "6 Miesięcy — 90 PLN",
+    'sub_12': "12 Miesięcy — 160 PLN",
+    'sub_success': "✅ Subskrypcja aktywowana! Dziękujemy."
+}

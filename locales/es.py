@@ -1,0 +1,21 @@
+text = {
+    'lang_name': "🇪🇸 Español",
+    'start': "👋 **¡Bienvenido!** Soy PictoBot. Mejora tus fotos con IA.\nElige tu idioma:",
+    'main_menu': "🏠 Menú principal. ¿Qué quieres hacer?",
+    'btn_process': "🖼 Procesar Fotos",
+    'btn_profile': "📊 Mi Perfil",
+    'btn_sub': "💎 Suscripción",
+    'btn_lang': "🌐 Cambiar idioma",
+    'batch_received': "📦 **{count}** foto(s) recibida(s).\nHaz clic para empezar.",
+    'btn_start_run': "🚀 EMPEZAR MEJORA",
+    'processing': "⏳ **Procesando {count} foto(s)...**\nEspera, por favor.",
+    'done': "✨ **¡Hecho!** Tus fotos han sido mejoradas.",
+    'profile': "👤 **Perfil:**\n\n💰 Límites: `{limit}/{max}`\n🌐 Idioma: `Español`",
+    'error': "❌ Error al procesar.",
+    'sub_title': "💎 **Elige tu plan:**",
+    'sub_1': "1 Mes — $5",
+    'sub_3': "3 Meses — $12",
+    'sub_6': "6 Meses — $22",
+    'sub_12': "12 Meses — $40",
+    'sub_success': "✅ ¡Suscripción activada!"
+}

@@ -1,0 +1,21 @@
+text = {
+    'lang_name': "🇺🇸 English",
+    'start': "👋 **Welcome!** I am PictoBot. I enhance your photos using AI.\nChoose your language to continue:",
+    'main_menu': "🏠 Main menu. What would you like to do?",
+    'btn_process': "🖼 Process Photo",
+    'btn_profile': "📊 My Profile",
+    'btn_sub': "💎 Subscription",
+    'btn_lang': "🌐 Language",
+    'batch_received': "📦 Received **{count}** photo(s).\nClick the button below to start enhancing.",
+    'btn_start_run': "🚀 START ENHANCING",
+    'processing': "⏳ **Processing {count} photo(s)...**\nPlease wait, quality takes time.",
+    'done': "✨ **Success!** Your photos have been enhanced.",
+    'profile': "👤 **Your Profile:**\n\n💰 Limits: `{limit}/{max}`\n🌐 Language: `English`",
+    'error': "❌ Error during processing.",
+    'sub_title': "💎 **Choose your plan:**\n\n✅ 15 photos per cycle (3h)\n✅ Priority queue\n✅ Max quality",
+    'sub_1': "1 Month — $5",
+    'sub_3': "3 Months — $12",
+    'sub_6': "6 Months — $22",
+    'sub_12': "12 Months — $40",
+    'sub_success': "✅ Subscription activated! Thank you."
+}

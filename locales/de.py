@@ -1,0 +1,21 @@
+text = {
+    'lang_name': "🇩🇪 Deutsch",
+    'start': "👋 **Willkommen!** Ich bin PictoBot. Ich verbessere deine Fotos mit KI.\nWähle deine Sprache:",
+    'main_menu': "🏠 Hauptmenü. Was möchtest du tun?",
+    'btn_process': "🖼 Foto verarbeiten",
+    'btn_profile': "📊 Profil",
+    'btn_sub': "💎 Abo",
+    'btn_lang': "🌐 Sprache ändern",
+    'batch_received': "📦 **{count}** Foto(s) erhalten.\nKlicke auf den Button, um zu starten.",
+    'btn_start_run': "🚀 VERBESSERUNG STARTEN",
+    'processing': "⏳ **Verarbeitung von {count} Foto(s)...**\nBitte warten.",
+    'done': "✨ **Fertig!** Deine Fotos wurden verbessert.",
+    'profile': "👤 **Profil:**\n\n💰 Limits: `{limit}/{max}`\n🌐 Sprache: `Deutsch`",
+    'error': "❌ Ein Fehler ist aufgetreten.",
+    'sub_title': "💎 **Wähle ein Abo:**",
+    'sub_1': "1 Monat — 5€",
+    'sub_3': "3 Monate — 12€",
+    'sub_6': "6 Monate — 22€",
+    'sub_12': "1 Jahr — 40€",
+    'sub_success': "✅ Abo aktiviert! Danke."
+}
