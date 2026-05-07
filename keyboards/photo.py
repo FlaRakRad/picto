@@ -1,4 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from locales.i18n import get_t
+
 
 def get_resolution_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -17,4 +19,12 @@ def get_wm_kb():
 def get_start_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 ПОЧАТИ ОБРОБКУ", callback_data="start_process")]
+    ])
+
+def get_functions_kb(lang):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_t(lang, 'btn_upscale'), callback_data="func:upscale")],
+        [InlineKeyboardButton(text=get_t(lang, 'btn_eraser'), callback_data="func:eraser")],
+        [InlineKeyboardButton(text=get_t(lang, 'btn_removebg'), callback_data="func:removebg")],
+        [InlineKeyboardButton(text=get_t(lang, 'btn_anime'), callback_data="func:anime")]
     ])

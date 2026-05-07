@@ -1,4 +1,6 @@
 from aiogram import Router, F
+from aiogram.fsm.context import FSMContext  # ДОДАЙ ЦЕЙ РЯДОК
+from handlers.fsm_states import ProcessState
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart
 from database.requests import upsert_user, set_user_lang, get_user_data, set_sub
@@ -45,3 +47,14 @@ async def process_payment(callback: CallbackQuery):
 
     await callback.message.edit_text(get_t(lang, 'sub_success'))
     await callback.answer()
+
+
+@router.message(F.text.in_([LANGUAGES[l]['btn_process'] for l in LANGUAGES]))
+async def start_process_mode(message: Message, state: FSMContext):
+    u = get_user_data(message.from_user.id)
+    lang = u[3] if u else 'en'
+
+    print(f"\n[MENU] >>> Юзер {message.from_user.id} увімкнув режим ОБРОБКИ")
+
+    await state.set_state(ProcessState.waiting_for_photos)
+    await message.answer("📸 " + get_t(lang, 'btn_process') + ": Send me one or multiple photos now!")
