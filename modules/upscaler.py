@@ -17,7 +17,7 @@ from database.requests import get_conn
 # Використовуємо абсолютний шлях до твого проекту
 BASE_DIR = PROJECT_ROOT
 # Функція модуля - має співпадати з назвою в БД та папкою в tmp/
-MY_FUNC = "upscale"
+MY_FUNC = "upscaler"
 
 INPUT_DIR = os.path.join(BASE_DIR, "tmp", MY_FUNC, "input")
 OUTPUT_DIR = os.path.join(BASE_DIR, "tmp", MY_FUNC, "output")
