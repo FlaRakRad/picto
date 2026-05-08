@@ -101,7 +101,7 @@ async def start_upscale(callback: CallbackQuery, state: FSMContext, bot: Bot):
             print(f"[TASK] Фото {f_name} копійовано -> upscaler/input")
 
             # Записуємо в БД завдання
-            add_task(uid, f_name, "upscale", priority)
+            add_task(uid, f_name, "upscaler", priority)
             print(f"[DB] Завдання для {f_name} додано в чергу (Priority: {priority})")
         except Exception as e:
             print(f"[ERROR] ❌ Помилка на етапі постановки в чергу: {e}")
