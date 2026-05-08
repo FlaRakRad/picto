@@ -1,4 +1,4 @@
-import asyncio, os, uuid, shutil
+import asyncio, os, uuid, shutil, subprocess, sys
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -109,3 +109,20 @@ async def start_upscale(callback: CallbackQuery, state: FSMContext, bot: Bot):
     storage.pop(uid, None)  # Чистимо за собою оперативку
     await state.clear()  # Скидаємо стан юзера - тепер він може знову тиснути меню
     print(f"[SUCCESS] ✅ Юзер {uid} успішно поставлений в чергу. FSM очищено.")
+    print(f"[SYSTEM] Запускаю скрипт через систему...")
+
+    # Варіант 1: Через лібу OS (найпростіший)
+    # os.system(f"python modules/upscaler.py") # АЛЕ це заморозить бота до кінця обробки!
+
+    # Варіант 2: Через subprocess (найправильніший для Windows/Linux)
+    # Він запустить скрипт у фоні, бот зможе працювати далі, а скрипт почне "молотити" чергу
+    try:
+        worker_script = os.path.join(os.getcwd(), "modules", "upscaler.py")
+
+        # Запускаємо процес паралельно
+        # sys.executable — це шлях до твого пітона в системі (автоматично знайде venv, якщо ти в ньому)
+        subprocess.Popen([sys.executable, worker_script])
+
+        print("✅ Скрипт воркера активовано і запущено у фоні.")
+    except Exception as e:
+        print(f"❌ Не вдалося запустити воркер: {e}")
