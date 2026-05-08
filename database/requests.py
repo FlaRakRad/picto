@@ -7,33 +7,29 @@ def get_conn():
 
 def db_init():
     conn = get_conn()
+    # МАГІЧНИЙ РЯДОК: Режим WAL робить SQLite набагато швидшим при паралельній роботі
+    conn.execute("PRAGMA journal_mode=WAL;")
 
     # 1. ТАБЛИЦЯ КОРИСТУВАЧІВ
     conn.execute("""CREATE TABLE IF NOT EXISTS users(
-                 user_id INTEGER PRIMARY KEY, 
-                 user_name TEXT, 
-                 cycle_date TEXT, 
-                 cycle_limit INTEGER DEFAULT 1, 
-                 max_cycle_limit INTEGER DEFAULT 1,
-                 sub_until TEXT,
-                 lang TEXT DEFAULT 'en')""")
-
-    # ХОТФІКС: Якщо база вже була створена раніше без колонки lang
-    try:
-        conn.execute("ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'en'")
-    except:
-        pass # Значить колонка вже є
+                     user_id INTEGER PRIMARY KEY, 
+                     user_name TEXT, 
+                     cycle_date TEXT, 
+                     cycle_limit INTEGER DEFAULT 1, 
+                     max_cycle_limit INTEGER DEFAULT 1,
+                     sub_until TEXT,
+                     lang TEXT DEFAULT 'en')""")
 
     # 2. ТАБЛИЦЯ ЧЕРГИ ЗАВДАНЬ
     conn.execute("""CREATE TABLE IF NOT EXISTS tasks(
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 user_id INTEGER,
-                 file_name TEXT,      
-                 function TEXT,       
-                 priority INTEGER DEFAULT 0,
-                 status TEXT DEFAULT 'pending', 
-                 output_name TEXT,    
-                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     user_id INTEGER,
+                     file_name TEXT,      
+                     function TEXT,       
+                     priority INTEGER DEFAULT 0,
+                     status TEXT DEFAULT 'pending', 
+                     output_name TEXT,    
+                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
 
     conn.commit()
 
