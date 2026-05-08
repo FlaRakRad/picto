@@ -22,3 +22,12 @@ def get_main_menu(lang):
         [KeyboardButton(text=t['btn_profile']), KeyboardButton(text=t['btn_sub'])],
         [KeyboardButton(text=t['btn_lang'])]
     ], resize_keyboard=True)
+
+def get_sub_kb(lang):
+    t = LANGUAGES.get(lang, LANGUAGES['en'])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t['sub_1'], callback_data="buy:1")],
+        [InlineKeyboardButton(text=t['sub_3'], callback_data="buy:3")],
+        [InlineKeyboardButton(text=t['sub_6'], callback_data="buy:6")],
+        [InlineKeyboardButton(text=t['sub_12'], callback_data="buy:12")]
+    ])
