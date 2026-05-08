@@ -1,15 +1,15 @@
-import asyncio, os, uuid, shutil, subprocess, sys
+import asyncio, os, uuid, subprocess, sys
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from handlers.fsm_states import ProcessState
-from keyboards.main_menu import get_start_process_kb
+from keyboards.photo import get_functions_kb  # Важливо: онови клаву (код нижче)
 from locales.i18n import get_t
 from database.requests import get_user_data, add_task
 
 router = Router()
+# Тимчасове сховище ID файлів у пам'яті (RAM)
 storage = {}
-QUEUE_DIR = os.path.join(os.getcwd(), "tmp", "queue")
 
 
 @router.message(F.photo, ProcessState.waiting_for_photos)
@@ -17,69 +17,77 @@ async def handle_photo(message: Message, state: FSMContext):
     uid = message.from_user.id
     if uid not in storage: storage[uid] = []
 
-    f_uuid = f"{uid}_{uuid.uuid4().hex[:8]}.png"
-    path = os.path.join(QUEUE_DIR, f_uuid)
-
-    f_info = await message.bot.get_file(message.photo[-1].file_id)
-    await message.bot.download_file(f_info.file_path, path)
-    storage[uid].append(f_uuid)
+    # Зберігаємо тільки ID, не качаємо файл!
+    storage[uid].append(message.photo[-1].file_id)
 
     curr_len = len(storage[uid])
-    await asyncio.sleep(2.5)  # Акумуляція
-    if len(storage[uid]) > curr_len: return
+    await asyncio.sleep(2.5)  # Акумуляція пачки
+    if uid in storage and len(storage[uid]) > curr_len: return
 
     user_data = get_user_data(uid)
     lang = user_data[3] if user_data else 'en'
-    priority = 1 if user_data and user_data[2] > 1 else 0
 
-    p_ids = storage[uid].copy()
-    await state.update_data(photo_ids=p_ids, lang=lang, priority=priority)
+    # Зберігаємо список ID в стан FSM
+    await state.update_data(photo_ids=storage[uid].copy(), lang=lang)
 
-    # Видаємо повідомлення з кнопкою
-    m = await message.answer(get_t(lang, 'batch_received', count=len(p_ids)),
-                             reply_markup=get_start_process_kb(lang))
-
-    # Зберігаємо дані для видалення кнопки та переходимо у стан старту
+    # Видаємо меню з 3 функціями (код клавіатури нижче)
+    m = await message.answer(
+        get_t(lang, 'batch_received', count=len(storage[uid])),
+        reply_markup=get_functions_kb(lang)
+    )
     await state.update_data(msg_to_del=m.message_id)
     await state.set_state(ProcessState.ready_to_start)
 
 
-# ТОЙ САМИЙ ОБРОБНИК, ЯКИЙ МАЄ ВІДПОВІДАТИ НА КНОПКУ
-@router.callback_query(F.data == "run_upscale", ProcessState.ready_to_start)
-async def start_upscale_fixed(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    # ПЕРШЕ: кажемо Телеграму, що ми прийняли сигнал (прибирає сіре підвисання)
+# УНІВЕРСАЛЬНИЙ ОБРОБНИК ДЛЯ БУДЬ-ЯКОЇ ФУНКЦІЇ (upscaler, mirror, bgchanger)
+@router.callback_query(F.data.startswith("func:"), ProcessState.ready_to_start)
+async def start_function_logic(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.answer()
 
     uid = callback.from_user.id
-    data = await state.get_data()
-    lang = data.get('lang', 'en')
-    p_ids = data.get('photo_ids', [])
-    priority = data.get('priority', 0)
-    msg_id = data.get('msg_to_del')
+    # Отримуємо назву (upscaler, mirror або bgchanger)
+    func_name = callback.data.split(":")[1]
 
-    # Видаляємо кнопку
+    data = await state.get_data()
+    lang, p_ids = data.get('lang', 'en'), data.get('photo_ids', [])
+
+    u_data = get_user_data(uid)
+    priority = 1 if u_data and u_data[2] > 1 else 0
+
     try:
-        await bot.delete_message(uid, msg_id)
+        await bot.delete_message(uid, data.get('msg_to_del'))
     except:
         pass
 
     await callback.message.answer(get_t(lang, 'processing', count=len(p_ids)))
 
-    for f_name in p_ids:
-        # ПЕРЕМІЩУЄМО в input нашого воркера upscaler
-        target_dir = os.path.join(os.getcwd(), "tmp", "upscaler", "input")
-        os.makedirs(target_dir, exist_ok=True)
+    # Шляхи до папок обраної функції
+    target_dir = os.path.join(os.getcwd(), "tmp", func_name, "input")
+    os.makedirs(target_dir, exist_ok=True)
+    os.makedirs(os.path.join(os.getcwd(), "tmp", func_name, "output"), exist_ok=True)
 
-        source = os.path.join(QUEUE_DIR, f_name)
-        target = os.path.join(target_dir, f_name)
+    # 1. ЗАВАНТАЖУЄМО ФАЙЛИ НАПРЯМУ В ЦІЛЬОВУ ПАПКУ
+    for p_id in p_ids:
+        f_name = f"{uid}_{uuid.uuid4().hex[:6]}.png"
+        path = os.path.join(target_dir, f_name)
 
-        if os.path.exists(source):
-            shutil.move(source, target)
-            add_task(uid, f_name, "upscaler", priority)  # Пишемо 'upscaler'
+        try:
+            file_info = await bot.get_file(p_id)
+            await bot.download_file(file_info.file_path, path)
+            # Додаємо в базу замовлення для цієї конкретної функції
+            add_task(uid, f_name, func_name, priority)
+            print(f"[DIRECT-LOG] Фото {f_name} завантажено прямо в {func_name}")
+        except Exception as e:
+            print(f"[ERROR] Помилка завантаження: {e}")
 
-    # Очищуємо storage і запускаємо скрипт
     storage.pop(uid, None)
-    worker_script = os.path.join(os.getcwd(), "modules", "upscaler.py")
-    subprocess.Popen([sys.executable, worker_script])
+
+    # 2. ЗАПУСКАЄМО ВОРКЕР (назва файла має бути такою ж як func_name)
+    worker_script = os.path.join(os.getcwd(), "modules", f"{func_name}.py")
+    if os.path.exists(worker_script):
+        subprocess.Popen([sys.executable, worker_script])
+        print(f"[SYSTEM] Воркер активовано: {func_name}")
+    else:
+        print(f"[CRITICAL] Скрипт {worker_script} не знайдено!")
 
     await state.clear()

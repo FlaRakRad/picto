@@ -10,7 +10,7 @@ INPUT_DIR = os.path.join(BASE_DIR, "tmp/bgchanger/input")
 OUTPUT_DIR = os.path.join(BASE_DIR, "tmp/bgchanger/output")
 FAILED_DIR = os.path.join(BASE_DIR, "tmp/bgchanger/failed")
 # Шлях до картинки, яка стане новим фоном
-NEW_BG_PATH = os.path.join(BASE_DIR, "assets/new_background.jpg")
+NEW_BG_PATH = os.path.join(BASE_DIR, "assets/bgchanger/new_background.jpg")
 
 # Створюємо потрібні папки
 for d in [INPUT_DIR, OUTPUT_DIR, FAILED_DIR]:
