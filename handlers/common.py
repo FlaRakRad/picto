@@ -33,15 +33,26 @@ async def select_lang(callback: CallbackQuery):
 @router.message(F.text.in_([LANGUAGES[l]['btn_profile'] for l in LANGUAGES]))
 async def view_profile(message: Message):
     uid = message.from_user.id
-    next_reset = check_reset_limit(uid)
-    u = get_user_data(uid)  # 0: limit, 1: date, 2: max, 3: lang
 
+    # 1. Спробуємо оновити ліміти
+    check_reset_limit(uid)
+
+    # 2. Беремо дані
+    u = get_user_data(uid)
+
+    # 🚨 ОСЬ ЦЕЙ ЖОРСТКИЙ ЗАХИСТ: Якщо тебе нема в базі (u == None)
+    if u is None:
+        from database.requests import upsert_user
+        print(f"[FIX] Юзер {uid} не знайдений в БД. Реєструю на ходу...")
+        upsert_user(uid, message.from_user.first_name)
+        u = get_user_data(uid)  # Тепер він точно там є
+
+    # Тепер дістаємо дані, бо 'u' вже точно не None
+    limit = u[0]
+    max_limit = u[2]
     lang = u[3]
-    limit_text = get_t(lang, 'profile', limit=u[0], max=u[2])
 
-    # Додаємо час до стандартного повідомлення профілю
-    time_str = next_reset.strftime("%H:%M")
-    await message.answer(f"{limit_text}\n\n🕒 Наступне поповнення: **{time_str}**")
+    await message.answer(get_t(lang, 'profile', limit=limit, max=max_limit))
 
 
 # МЕНЮ ПІДПИСКИ
