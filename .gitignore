@@ -1,3 +1,4 @@
 my_token.py
 BASE_DIR
 tmp/debug
+config.py

@@ -1,82 +1,140 @@
 import sqlite3 as sq
 from datetime import datetime, timedelta
+import config
 
 def get_conn():
-    # Таймаут та WAL режим для паралельної роботи
     conn = sq.connect('picto.db', check_same_thread=False, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
+
 def db_init():
     conn = get_conn()
-    # 1. ТАБЛИЦЯ ЮЗЕРІВ
+    conn.execute("PRAGMA journal_mode=WAL;")
+
+    # 1. ТАБЛИЦЯ ЮЗЕРІВ (Додав sub_until)
     conn.execute("""CREATE TABLE IF NOT EXISTS users(
                  user_id INTEGER PRIMARY KEY, 
                  user_name TEXT, 
                  cycle_date TEXT, 
                  cycle_limit INTEGER DEFAULT 1, 
-                 max_cycle_limit INTEGER DEFAULT 1,
-                 sub_until TEXT,
-                 lang TEXT DEFAULT 'en')""")
+                 max_cycle_limit INTEGER DEFAULT 1, 
+                 lang TEXT DEFAULT 'en',
+                 sub_until TEXT)""")  # <--- ОСЬ ЦЕЙ ВАЖЛИВИЙ РЯДОК
 
     # 2. ТАБЛИЦЯ ЗАВДАНЬ
     conn.execute("""CREATE TABLE IF NOT EXISTS tasks(
                  id INTEGER PRIMARY KEY AUTOINCREMENT, 
                  user_id INTEGER,
-                 file_name TEXT, function TEXT, priority INTEGER DEFAULT 0,
-                 status TEXT DEFAULT 'pending', output_name TEXT, batch_id TEXT,
+                 file_name TEXT, 
+                 function TEXT, 
+                 priority INTEGER DEFAULT 0,
+                 status TEXT DEFAULT 'pending', 
+                 output_name TEXT, 
+                 batch_id TEXT,
                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-    conn.commit()
 
-def upsert_user(user_id, name):
-    conn = get_conn()
-    # ТУТ ВИПРАВЛЕНО: Ми не затираємо cycle_date та ліміти при кожному старті
-    # Ми використовуємо DEFAULT значення для нових, а для старих тільки UPDATE ім'я
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn.execute("""
-        INSERT INTO users (user_id, user_name, cycle_date) VALUES (?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET user_name = excluded.user_name
-    """, (user_id, name, now))
+    # 3. ТАБЛИЦЯ ТРАНЗАКЦІЙ
+    conn.execute("""CREATE TABLE IF NOT EXISTS transactions(
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 user_id INTEGER,
+                 amount REAL,
+                 currency TEXT,
+                 method TEXT,      
+                 external_id TEXT, 
+                 status TEXT DEFAULT 'pending', 
+                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+
     conn.commit()
+    print("[DB] Всі таблиці (users, tasks, transactions) успішно ініціалізовані.")
 
 def get_user_data(user_id):
     cur = get_conn().cursor()
     cur.execute("SELECT cycle_limit, cycle_date, max_cycle_limit, lang FROM users WHERE user_id = ?", (user_id,))
     return cur.fetchone()
 
+
 def check_reset_limit(user_id):
     conn = get_conn()
-    data = get_user_data(user_id)
-    if not data or not data[1]: return
+    # Беремо всі дані юзера
+    cur = conn.cursor()
+    cur.execute("SELECT cycle_limit, cycle_date, max_cycle_limit, lang, sub_until FROM users WHERE user_id = ?",
+                (user_id,))
+    u = cur.fetchone()
 
-    last_date = datetime.strptime(data[1], "%Y-%m-%d %H:%M:%S")
-    # Перевірка: чи минуло 3 години з останнього оновлення?
-    if datetime.now() - last_date > timedelta(hours=3):
-        # Оновлюємо ліміти до МАКСИМАЛЬНИХ (щоб VIP не ставали Free)
-        conn.execute("""UPDATE users SET cycle_limit = max_cycle_limit, cycle_date = ? 
-                     WHERE user_id = ?""", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
+    if not u: return datetime.now()
+
+    limit, last_date_str, max_limit, lang, sub_until = u
+    now = datetime.now()
+
+    # --- ПЕРЕВІРКА НА ЗАКІНЧЕННЯ ПІДПИСКИ ---
+    if sub_until:
+        sub_end_dt = datetime.strptime(sub_until, "%Y-%m-%d %H:%M:%S")
+        if now > sub_end_dt:
+            # ПІДПИСКА ЗАКІНЧИЛАСЬ: вертаємо на Free ліміт
+            print(f"[EXPIRE] VIP закінчився для {user_id}")
+            conn.execute("UPDATE users SET max_cycle_limit = ?, sub_until = NULL WHERE user_id = ?",
+                         (config.FREE_LIMIT, user_id))
+            conn.commit()
+            max_limit = config.FREE_LIMIT
+
+    # --- ЗВИЧАЙНА ПЕРЕВІРКА ГОДИННОГО ЦИКЛУ ---
+    last_date = datetime.strptime(last_date_str, "%Y-%m-%d %H:%M:%S") if last_date_str else datetime.min
+    next_cycle = last_date + timedelta(hours=1)
+
+    if now >= next_cycle:
+        # Поповнюємо фото (насипаємо max_limit)
+        conn.execute("UPDATE users SET cycle_limit = max_cycle_limit, cycle_date = ? WHERE user_id = ?",
+                     (now.strftime("%Y-%m-%d %H:%M:%S"), user_id))
         conn.commit()
-        print(f"[DB] Ліміти оновлено для {user_id}")
+        return now + timedelta(hours=1)
 
-def consume_one(user_id, count=1):
-    conn = get_conn()
-    # Списуємо за кількістю фото в альбомі
-    conn.execute("UPDATE users SET cycle_limit = cycle_limit - ? WHERE user_id = ?", (count, user_id))
-    conn.commit()
+    return next_cycle
 
+
+# 2. ОНОВЛЕНА ФУНКЦІЯ ПІДПИСКИ (set_sub)
 def set_sub(user_id, months):
-    limit = 15 # План для підписників
-    end_date = (datetime.now() + timedelta(days=30 * months)).strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now()
+    # Рахуємо дату закінчення (зараз + місяці)
+    expire_date = (now + timedelta(days=30 * months)).strftime("%Y-%m-%d %H:%M:%S")
+
     conn = get_conn()
-    conn.execute("""UPDATE users SET max_cycle_limit = ?, cycle_limit = ?, sub_until = ? 
-                 WHERE user_id = ?""", (limit, limit, end_date, user_id))
+    # Даємо VIP ліміт і записуємо дату "До коли"
+    conn.execute("""
+        UPDATE users 
+        SET max_cycle_limit = ?, 
+            cycle_limit = ?, 
+            sub_until = ? 
+        WHERE user_id = ?
+    """, (config.VIP_LIMIT, config.VIP_LIMIT, expire_date, user_id))
+    conn.commit()
+def consume_one(user_id, count=1):
+    conn = get_conn(); conn.execute("UPDATE users SET cycle_limit = cycle_limit - ? WHERE user_id = ?", (count, user_id)); conn.commit()
+
+
+
+
+
+# ВАЖЛИВО: upsert_user для нового юзера має ставити безкоштовний ліміт з конфігу
+def upsert_user(user_id, name):
+    conn = get_conn()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Для нового юзера ставимо max_cycle_limit = FREE_LIMIT
+    conn.execute("""
+        INSERT INTO users (user_id, user_name, cycle_date, max_cycle_limit, cycle_limit) 
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET user_name = excluded.user_name
+    """, (user_id, name, now, config.FREE_LIMIT, config.FREE_LIMIT))
     conn.commit()
 
 def add_task(user_id, file_name, function, priority, batch_id):
-    conn = get_conn()
-    conn.execute("""INSERT INTO tasks (user_id, file_name, function, priority, batch_id) 
-                 VALUES (?, ?, ?, ?, ?)""", (user_id, file_name, function, priority, batch_id))
-    conn.commit()
+    conn = get_conn(); conn.execute("INSERT INTO tasks (user_id, file_name, function, priority, batch_id) VALUES (?,?,?,?,?)", (user_id, file_name, function, priority, batch_id)); conn.commit()
 
-def set_user_lang(user_id, lang):
-    conn = get_conn(); conn.execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, user_id)); conn.commit()
+def add_transaction(u, a, c, m, e):
+    conn = get_conn(); conn.execute("INSERT INTO transactions (user_id, amount, currency, method, external_id) VALUES (?,?,?,?,?)", (u,a,c,m,e)); conn.commit()
+
+def update_transaction_status(e, s):
+    conn = get_conn(); conn.execute("UPDATE transactions SET status=? WHERE external_id=?", (s, e)); conn.commit()
+
+def set_user_lang(u, l):
+    conn = get_conn(); conn.execute("UPDATE users SET lang=? WHERE user_id=?", (l, u)); conn.commit()
