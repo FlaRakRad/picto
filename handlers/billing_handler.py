@@ -1,159 +1,104 @@
-import os
-import sys
-import uuid
-from aiocryptopay import AioCryptoPay, Networks
+import os, sys, uuid
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery
-import my_token
-# Фікс шляхів, щоб воркер бачив корінь проекту
+from aiocryptopay import AioCryptoPay, Networks
 
+# Фікс шляхів
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(PROJECT_ROOT)
-
-from database.requests import (
-    get_user_data,
-    set_sub,
-    add_transaction,
-    update_transaction_status
-)
+import my_token
+from database.requests import get_user_data, set_sub, add_transaction, update_transaction_status, upsert_user
 from keyboards.photo import get_payment_methods_kb, get_check_crypto_kb
 from locales.i18n import get_t
-from modules.billing_utils import create_crypto_invoice, get_invoice_status
 
 router = Router()
 
-# ЦІНИ: plan_id (місяці): ціна в доларах для крипти
-CRYPTO_PRICES = {1: 5.0, 3: 12.0, 6: 22.0, 12: 40.0}
+# КОНФІГУРАЦІЯ
+LIMITS_CONFIG = {1: 10, 3: 15, 6: 25, 12: 50}
+CRYPTO_PRICES = {1: 0.1, 3: 0.2, 6: 0.5, 12: 1.0}  # ТЕСТ USDT
+STARS_PRICES = {1: 1, 3: 2, 6: 5, 12: 10}  # ТЕСТ STARS
 
-# ЦІНИ: plan_id (місяці): ціна в Telegram Stars (1 USD ~ 50 Stars)
-STARS_PRICES = {1: 1, 3: 1.5, 6: 1000, 12: 1900}
-LIMITS_CONFIG = {
-    1: 10,   # 1 місяць = 10 фото за цикл
-    3: 15,   # 3 місяці = 15 фото за цикл
-    6: 25,   # 6 місяців = 25 фото за цикл
-    12: 50   # 12 місяців = 50 фото за цикл
-}
 
-# --- 1. ВИБІР МЕТОДУ ОПЛАТИ ---
 @router.callback_query(F.data.startswith("buy:"))
-async def choose_payment_method(callback: CallbackQuery):
-    plan_id = callback.data.split(":")[1]  # Отримуємо "1", "3" тощо
-    u = get_user_data(callback.from_user.id)
+async def choose_method(callback: CallbackQuery):
+    uid = callback.from_user.id
+    u = get_user_data(uid)
+    if not u: upsert_user(uid, callback.from_user.first_name); u = get_user_data(uid)
+
+    plan_id = callback.data.split(":")[1]
     lang = u[3] if u else 'en'
 
-    await callback.message.edit_text(
-        get_t(lang, 'pay_method'),
-        reply_markup=get_payment_methods_kb(plan_id)
-    )
+    await callback.message.edit_text(get_t(lang, 'pay_method'), reply_markup=get_payment_methods_kb(plan_id))
     await callback.answer()
 
 
-# --- 2. ОПЛАТА КРИПТОЮ (USDT/TON/BTC) ---
 @router.callback_query(F.data.startswith("meth:crypto:"))
-async def process_crypto_pay(callback: CallbackQuery):
+async def pay_crypto(callback: CallbackQuery):
     plan_id = int(callback.data.split(":")[2])
-    uid = callback.from_user.id
-    amount = CRYPTO_PRICES.get(plan_id, 5.0)
+    amount = CRYPTO_PRICES.get(plan_id, 0.1)
 
-    await callback.message.edit_text("⏳ Створюю унікальний рахунок у блокчейні...")
+    # Створюємо клієнт тільки всередині (Фікс для Arch Linux)
+    cp = AioCryptoPay(token=my_token.CRYPTO_TOKEN, network=Networks.MAIN_NET)
+    invoice = await cp.create_invoice(asset='USDT', amount=amount)
+    await cp.close()
 
-    # Створюємо рахунок через наш шлюз
-    invoice = await create_crypto_invoice(amount)
-
-    # ЛОГУЄМО ТРАНЗАКЦІЮ В БД (pending)
-    add_transaction(
-        user_id=uid,
-        amount=amount,
-        currency="USDT",
-        method="crypto",
-        external_id=str(invoice.invoice_id)
-    )
+    add_transaction(callback.from_user.id, amount, "USDT", "crypto", str(invoice.invoice_id))
 
     await callback.message.edit_text(
-        f"⚡ **Крипто-оплата (USDT/TON/BTC)**\n\n"
-        f"Сума: `{amount} USDT`\n"
-        f"Ваш ID транзакції: `{invoice.invoice_id}`\n\n"
-        "Натисніть кнопку нижче, щоб перейти в додаток для оплати. "
-        "Після завершення переказу натисніть «Перевірити».",
+        f"⚡ **Crypto Pay**: `{amount} USDT`\nID: `{invoice.invoice_id}`",
         reply_markup=get_check_crypto_kb(invoice.invoice_id, plan_id, invoice.bot_invoice_url)
     )
 
 
-# КНОПКА: ПЕРЕВІРКА КРИПТО-ПЛАТЕЖУ
 @router.callback_query(F.data.startswith("check_crypto:"))
-async def check_crypto_payment(callback: CallbackQuery):
+async def check_crypto(callback: CallbackQuery):
     _, inv_id, plan_id = callback.data.split(":")
-    is_paid = await get_invoice_status(int(inv_id))
+    cp = AioCryptoPay(token=my_token.CRYPTO_TOKEN, network=Networks.MAIN_NET)
+    invs = await cp.get_invoices(invoice_ids=int(inv_id))
+    await cp.close()
 
-    if is_paid:
-        months = int(plan_id)
-        # ТАК САМО ВИЗНАЧАЄМО ЛІМІТ
-        LIMITS_CONFIG = {1: 10, 3: 15, 6: 25, 12: 50}
-        new_limit = LIMITS_CONFIG.get(months, 10)
-
+    if invs and invs[0].status == 'paid':
         update_transaction_status(inv_id, 'completed')
-        # ПЕРЕДАЄМО 3 АРГУМЕНТИ
-        set_sub(callback.from_user.id, months, new_limit)
-
-        await callback.message.edit_text(f"🎉 Крипта отримана! Ваш ліміт тепер: {new_limit} фото/год.")
+        set_sub(callback.from_user.id, int(plan_id), LIMITS_CONFIG.get(int(plan_id), 10))
+        await callback.message.edit_text("✅ VIP АКТИВОВАНО! Дякуємо за оплату!")
     else:
-        await callback.answer("⏳ Оплата поки не підтверджена...", show_alert=True)
+        await callback.answer("⏳ Оплата не знайдена. Зачекайте 1-2 хвилини.", show_alert=True)
 
-# --- 3. ОПЛАТА ТЕЛЕГРАМ-ЗІРКАМИ ---
+
 @router.callback_query(F.data.startswith("meth:stars:"))
-async def process_stars_pay(callback: CallbackQuery):
+async def pay_stars(callback: CallbackQuery):
     plan_id = int(callback.data.split(":")[2])
     amount = STARS_PRICES.get(plan_id, 1)
-    uid = callback.from_user.id
+    internal_id = f"st_{uuid.uuid4().hex[:6]}"
 
-    # 1. Геруємо наш унікальний ID
-    internal_id = f"stars_{uuid.uuid4().hex[:6]}"
-
-    # 2. Реєструємо транзакцію ПЕРЕД виставленням рахунку
-    add_transaction(uid, amount, "XTR", "stars", internal_id)
+    add_transaction(callback.from_user.id, amount, "XTR", "stars", internal_id)
 
     await callback.message.answer_invoice(
-        title="PICТО VIP (Test Mode)",
-        description=f"План на {plan_id} міс. — TEST",
-        prices=[LabeledPrice(label="⭐ XTR", amount=amount)],
-        provider_token="",
+        title="PictoBot VIP Access",
+        description=f"План на {plan_id} міс.",
+        prices=[LabeledPrice(label="XTR", amount=amount)],
+        provider_token="",  # Обов'язково пусто для зірок
         currency="XTR",
-        # ВАЖЛИВО: ми передаємо наш internal_id і plan_id в payload через розділювач
         payload=f"order:{internal_id}:{plan_id}"
     )
     await callback.answer()
 
 
-# --- 4. ПІДТВЕРДЖЕННЯ ТЕЛЕГРАМ ПЛАТЕЖІВ (Stars/Cards) ---
 @router.pre_checkout_query()
-async def pre_checkout_handler(query: PreCheckoutQuery):
-    # Кажемо системі, що ми готові забрати зірочки/гроші
+async def process_pre_checkout(query: PreCheckoutQuery):
     await query.answer(ok=True)
 
 
 @router.message(F.successful_payment)
 async def success_pay(message: Message):
     uid = message.from_user.id
-
-    # Дістаємо дані з нашого нового payload: "order:stars_xxxxxx:1"
-    payload_parts = message.successful_payment.invoice_payload.split(":")
-    internal_id = payload_parts[1]
-    months = int(payload_parts[2])
+    payload = message.successful_payment.invoice_payload.split(":")
+    internal_id = payload[1]
+    months = int(payload[2])
 
     new_limit = LIMITS_CONFIG.get(months, 10)
-
-    # 1. Оновлюємо статус транзакції саме за ТИМ ідентифікатором, що в базі!
+    set_sub(uid, months, new_limit)
     update_transaction_status(internal_id, 'completed')
 
-    # 2. Видаємо VIP ліміти
-    set_sub(uid, months, new_limit)
-
     u_data = get_user_data(uid)
-    lang = u_data[3] if u_data else 'en'
-
-    print(f"💰 ОПЛАТА ПІДТВЕРДЖЕНА! ID: {internal_id}")
-
-    await message.answer(
-        f"✅ **Оплата пройшла успішно!**\n"
-        f"VIP активовано. Новий ліміт: **{new_limit} фото** за цикл."
-    )
+    await message.answer(get_t(u_data[3], 'sub_success'))
