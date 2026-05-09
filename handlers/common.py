@@ -1,96 +1,106 @@
+import os, sys
 from aiogram import Router, F, Bot
-from aiogram.fsm.context import FSMContext
-from handlers.fsm_states import ProcessState
-from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.filters import CommandStart
-from database.requests import upsert_user, set_user_lang, get_user_data, set_sub, check_reset_limit
+from aiogram.fsm.context import FSMContext
+
+# Фікс шляхів
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(PROJECT_ROOT)
+
+from database.requests import upsert_user, set_user_lang, get_user_data, check_reset_limit
 from keyboards.main_menu import get_lang_kb, get_main_menu, get_sub_kb
 from locales.i18n import get_t, LANGUAGES
+from handlers.fsm_states import ProcessState
 
 router = Router()
 
-# Словник: ID плану -> Кількість фото за годинний цикл
-LIMITS_CONFIG = {1: 10, 3: 15, 6: 25, 12: 50}
 
-
+# 1. КОМАНДА СТАРТ - Повна чистка та вибір мови
 @router.message(CommandStart())
-@router.message(F.text.in_([LANGUAGES[l]['btn_lang'] for l in LANGUAGES]))
-async def cmd_start_or_lang(message: Message, state: FSMContext):
-    await state.clear()
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()  # Скидаємо ШІ-чергу та інше
     upsert_user(message.from_user.id, message.from_user.first_name)
-    await message.answer("🌍 Choose your language / Оберіть мову:", reply_markup=get_lang_kb())
+
+    # Видаляємо будь-які старі кнопки, щоб юзер бачив ТІЛЬКИ вибір мови
+    await message.answer(
+        "👋", reply_markup=ReplyKeyboardRemove()
+    )
+
+    await message.answer(
+        "🌍 <b>Welcome! Please choose your language:</b>\n"
+        "Оберіть мову інтерфейсу, щоб продовжити 👇",
+        reply_markup=get_lang_kb()
+    )
 
 
+# 2. ОБРОБНИК ОБРАНОЇ МОВИ
 @router.callback_query(F.data.startswith("set_lang:"))
 async def select_lang(callback: CallbackQuery):
     lang = callback.data.split(":")[1]
     set_user_lang(callback.from_user.id, lang)
+
     await callback.message.delete()
-    await callback.message.answer(get_t(lang, 'main_menu'), reply_markup=get_main_menu(lang))
+
+    # Видаємо вітання мовою користувача та ОФІЦІЙНЕ ГОЛОВНЕ МЕНЮ
+    await callback.message.answer(
+        get_t(lang, 'main_menu'),
+        reply_markup=get_main_menu(lang)
+    )
 
 
-# КНОПКА МІЙ ПРОФІЛЬ (Перевірка циклу)
+# 3. ПРОФІЛЬ
 @router.message(F.text.in_([LANGUAGES[l]['btn_profile'] for l in LANGUAGES]))
 async def view_profile(message: Message):
     uid = message.from_user.id
+    check_reset_limit(uid)  # Скидаємо годинний ліміт якщо час настав
 
-    # 1. Спробуємо оновити ліміти
-    check_reset_limit(uid)
-
-    # 2. Беремо дані
     u = get_user_data(uid)
-
-    # 🚨 ОСЬ ЦЕЙ ЖОРСТКИЙ ЗАХИСТ: Якщо тебе нема в базі (u == None)
-    if u is None:
-        from database.requests import upsert_user
-        print(f"[FIX] Юзер {uid} не знайдений в БД. Реєструю на ходу...")
+    if not u:  # На випадок якщо база порожня
         upsert_user(uid, message.from_user.first_name)
-        u = get_user_data(uid)  # Тепер він точно там є
+        u = get_user_data(uid)
 
-    # Тепер дістаємо дані, бо 'u' вже точно не None
-    limit = u[0]
-    max_limit = u[2]
     lang = u[3]
+    # Форматуємо дату закінчення VIP
+    sub_date = u[4].split(" ")[0] if u[4] else "---"
 
-    await message.answer(get_t(lang, 'profile', limit=limit, max=max_limit))
+    text = get_t(lang, 'profile',
+                 user_name=message.from_user.first_name,
+                 limit=u[0], max=u[2],
+                 total_all=u[5], sub_date=sub_date)
+    await message.answer(text)
 
 
-# МЕНЮ ПІДПИСКИ
+# 4. МЕНЮ ПІДПИСКИ
 @router.message(F.text.in_([LANGUAGES[l]['btn_sub'] for l in LANGUAGES]))
 async def sub_menu(message: Message):
     u = get_user_data(message.from_user.id)
-    lang = u[3] or 'en'
-    # Тут використовуй inline-кнопки вибору оплати (Stars/Crypto)
-    # Поки для простоти відправляємо стандартне вікно підписки
+    lang = u[3] if u else 'en'
     await message.answer(get_t(lang, 'sub_title'), reply_markup=get_sub_kb(lang))
 
 
-# ОБРОБКА ТЕСТОВОЇ ОПЛАТИ (buy:1, buy:3 ...)
-@router.callback_query(F.data.startswith("buy:"))
-async def process_payment(callback: CallbackQuery):
-    plan_id = int(callback.data.split(":")[1])
-    uid = callback.from_user.id
-
-    # Визначаємо новий макс_ліміт за обраним планом
-    new_max = LIMITS_CONFIG.get(plan_id, 10)
-
-    # У цій версії - СИМУЛЯЦІЯ УСПІХУ ТА ОНОВЛЕННЯ ЛІМІТІВ
-    # В майбутньому тут буде виклик get_payment_methods_kb
-    set_sub(uid, plan_id, new_max)
-
-    u = get_user_data(uid);
-    lang = u[3] or 'en'
-    await callback.message.edit_text(get_t(lang, 'sub_success'))
-    await callback.answer()
-
-
-# КНОПКА ОБРОБКИ
+# 5. КНОПКА ОБРОБКИ
 @router.message(F.text.in_([LANGUAGES[l]['btn_process'] for l in LANGUAGES]))
-async def start_process_mode(message: Message, state: FSMContext):
+async def start_process_command(message: Message, state: FSMContext):
     u = get_user_data(message.from_user.id)
-    check_reset_limit(message.from_user.id)  # Важливо оновити перед роботою
+    lang = u[3] if u else 'en'
+    check_reset_limit(message.from_user.id)
 
     await state.set_state(ProcessState.waiting_for_photos)
-    await message.answer("📸 " + get_t(u[3], 'btn_process') + ": Send photos now!")
+    await message.answer(get_t(lang, 'btn_process_instruction'))
 
 
+# 6. ПІДТРИМКА (🆘)
+@router.message(F.text.in_([LANGUAGES[l]['btn_support'] for l in LANGUAGES]))
+async def support_handler(message: Message):
+    u = get_user_data(message.from_user.id)
+    lang = u[3] if u else 'en'
+    # Напиши свій контакт або чат підтримки
+    await message.answer("🛠 <b>Support Center</b>\n\nContact us: @ВашЮзернейм_Підтримки")
+
+
+# 7. ВІДГУКИ (⭐️)
+@router.message(F.text.in_([LANGUAGES[l]['btn_feedback'] for l in LANGUAGES]))
+async def feedback_handler(message: Message):
+    # Тут може бути посилання на твій канал з відгуками
+    await message.answer("⭐️ <b>Community Feedback</b>\n\nChannel: @PictoReviews")

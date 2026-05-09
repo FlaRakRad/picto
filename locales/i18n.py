@@ -5,13 +5,14 @@ from locales import uk, en, de, fr, it, pl, es, pt, tr
 LANGUAGES = {
     'uk': uk.text,
     'en': en.text,
-    'de': de.text,
-    'fr': fr.text,
-    'it': it.text,
-    'pl': pl.text,
-    'es': es.text,
-    'pt': pt.text,
-    'tr': tr.text
+
+#    'de': de.text,
+#    'fr': fr.text,
+#    'it': it.text,
+#    'pl': pl.text,
+#    'es': es.text,
+#    'pt': pt.text,
+#    'tr': tr.text
 
 }
 
