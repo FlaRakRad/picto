@@ -6,7 +6,7 @@ from handlers.fsm_states import ProcessState
 from keyboards.photo import get_functions_kb
 from locales.i18n import get_t
 from database.requests import get_user_data, add_task, check_reset_limit, upsert_user
-
+from datetime import datetime
 router = Router()
 storage = {}
 
@@ -21,7 +21,16 @@ async def handle_photo(message: Message, state: FSMContext):
 
     # 1. Перевірка: чи не порожній ліміт
     if u[0] <= 0:
-        return await message.answer(get_t(u[3], 'batch_limit_error', limit=0, count="?", time=nxt.strftime("%H:%M")))
+        # Рахуємо різницю в хвилинах для тексту
+        diff = nxt - datetime.now()
+        mins_left = int(diff.total_seconds() // 60)
+
+        # Передаємо ВСІ змінні, які хоче текст: limit, count, time, minutes
+        return await message.answer(get_t(u[3], 'batch_limit_error',
+                                          limit=0,
+                                          count="?",
+                                          time=nxt.strftime("%H:%M"),
+                                          minutes=mins_left))
 
     if uid not in storage: storage[uid] = []
     storage[uid].append(message.photo[-1].file_id)
