@@ -14,20 +14,16 @@ storage = {}
 @router.message(F.photo, ProcessState.waiting_for_photos)
 async def handle_photo(message: Message, state: FSMContext):
     uid = message.from_user.id
-    # Оновлюємо ліміти (цикли)
     nxt = check_reset_limit(uid)
     u = get_user_data(uid)
     if not u: upsert_user(uid, message.from_user.first_name); u = get_user_data(uid)
 
-    # 1. Перевірка: чи не порожній ліміт
+    # 1. ПЕРША ПЕРЕВІРКА (на самому початку)
     if u[0] <= 0:
-        # Рахуємо різницю в хвилинах для тексту
         diff = nxt - datetime.now()
         mins_left = int(diff.total_seconds() // 60)
-
-        # Передаємо ВСІ змінні, які хоче текст: limit, count, time, minutes
         return await message.answer(get_t(u[3], 'batch_limit_error',
-                                          limit=0,
+                                          limit=u[0],
                                           count="?",
                                           time=nxt.strftime("%H:%M"),
                                           minutes=mins_left))
@@ -35,24 +31,24 @@ async def handle_photo(message: Message, state: FSMContext):
     if uid not in storage: storage[uid] = []
     storage[uid].append(message.photo[-1].file_id)
     c = len(storage[uid])
-
     await asyncio.sleep(3.5)
 
-    # ГАРД: тільки ОДИН запуск на всю пачку (фікс 20 фото)
     if uid not in storage or len(storage[uid]) > c: return
     p_ids = storage.pop(uid)
 
-    # 2. Перевірка: чи пачка не більша за ліміт
+    # 2. ДРУГА ПЕРЕВІРКА (після збору пачки) - ОСЬ ТУТ БУЛА ПОМИЛКА
     if len(p_ids) > u[0]:
-        return await message.answer(
-            get_t(u[3], 'batch_limit_error', limit=u[0], count=len(p_ids), time=nxt.strftime("%H:%M")))
+        diff = nxt - datetime.now()
+        mins_left = int(diff.total_seconds() // 60)
+        return await message.answer(get_t(u[3], 'batch_limit_error',
+                                          limit=u[0],
+                                          count=len(p_ids),
+                                          time=nxt.strftime("%H:%M"),
+                                          minutes=mins_left))  # ДОДАВ МИНУТЫ СЮДИ!
 
+    # Якщо все ок, далі йде виклик меню...
     await state.update_data(photo_ids=p_ids, lang=u[3])
-
-    m = await message.answer(
-        get_t(u[3], 'batch_received', count=len(p_ids)),
-        reply_markup=get_functions_kb(u[3])
-    )
+    m = await message.answer(get_t(u[3], 'batch_received', count=len(p_ids)), reply_markup=get_functions_kb(u[3]))
     await state.update_data(msg_to_del=m.message_id)
     await state.set_state(ProcessState.ready_to_start)
     await message.answer(get_t(u[3], 'next_cycle', time=nxt.strftime("%H:%M")))
