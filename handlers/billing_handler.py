@@ -6,10 +6,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery
 import my_token
 # Фікс шляхів, щоб воркер бачив корінь проекту
-cryptopay = AioCryptoPay(
-    token=my_token.CRYPTO_TOKEN,
-    network=Networks.MAIN_NET  # Для справжніх грошей. Якщо хочеш тест - Networks.TEST_NET
-)
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(PROJECT_ROOT)
 
@@ -30,7 +27,12 @@ CRYPTO_PRICES = {1: 5.0, 3: 12.0, 6: 22.0, 12: 40.0}
 
 # ЦІНИ: plan_id (місяці): ціна в Telegram Stars (1 USD ~ 50 Stars)
 STARS_PRICES = {1: 1, 3: 1.5, 6: 1000, 12: 1900}
-
+LIMITS_CONFIG = {
+    1: 10,   # 1 місяць = 10 фото за цикл
+    3: 15,   # 3 місяці = 15 фото за цикл
+    6: 25,   # 6 місяців = 25 фото за цикл
+    12: 50   # 12 місяців = 50 фото за цикл
+}
 
 # --- 1. ВИБІР МЕТОДУ ОПЛАТИ ---
 @router.callback_query(F.data.startswith("buy:"))
