@@ -1,91 +1,109 @@
-import sys, os, subprocess, time, shutil
+import sys
+import os
+import shutil
+import time
 from pathlib import Path
 from PIL import Image
 from rembg import remove, new_session
 
-# --- 1. ФІКС ШЛЯХІВ ---
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(BASE_DIR)
+# --- 1. АВТО-ФІКС ШЛЯХІВ (щоб бачити папку database) ---
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(PROJECT_ROOT)
+
 from database.requests import get_conn
 
 # --- 2. НАЛАШТУВАННЯ ---
 MY_FUNC = "bgchanger"
-INPUT_DIR = os.path.join(BASE_DIR, "tmp", MY_FUNC, "input")
-OUTPUT_DIR = os.path.join(BASE_DIR, "tmp", MY_FUNC, "output")
-for d in [INPUT_DIR, OUTPUT_DIR]: os.makedirs(d, exist_ok=True)
+INPUT_DIR = os.path.join(PROJECT_ROOT, "tmp", MY_FUNC, "input")
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, "tmp", MY_FUNC, "output")
+FAILED_DIR = os.path.join(PROJECT_ROOT, "tmp", MY_FUNC, "failed")
 
-# Ініціалізація ШІ моделі
-session = new_session("u2net")
+for d in [INPUT_DIR, OUTPUT_DIR, FAILED_DIR]:
+    os.makedirs(d, exist_ok=True)
+
+# Ініціалізація ШІ-сесії моделі (робимо 1 раз для швидкості)
+print(f"[{MY_FUNC.upper()}] Завантаження ШІ-моделі rembg...")
+ai_session = new_session("u2net")
 
 
 def main():
-    print(f"[{MY_FUNC.upper()}] Воркер запущено. Чекаю на пари фото...")
+    print(f"[{MY_FUNC.upper()}] Воркер запущений. Чекаю на замовлення в БД...")
 
     while True:
-        conn = get_conn();
+        conn = get_conn()
         cur = conn.cursor()
 
-        # Шукаємо унікальні Batch ID, які ще не оброблені
+        # 1. Знаходимо пачки (Batch), де статус 'pending'
         cur.execute(f"SELECT DISTINCT batch_id, user_id FROM tasks WHERE function='{MY_FUNC}' AND status='pending'")
         ready_batches = cur.fetchall()
 
         if not ready_batches:
-            conn.close();
-            break  # Вихід, якщо нема роботи
+            conn.close()
+            # Робимо break, якщо воркер запускається через Popen, або sleep(3) для циклу
+            print(f"[{MY_FUNC.upper()}] Роботу завершено. Пачка пуста.")
+            break
 
         for b_id, uid in ready_batches:
-            # Беремо ВСІ фото цієї пачки, сортуємо за ID (перше надіслане — першим)
+            # 2. Беремо ВСІ файли цього батчу (ID ASC гарантує: ФОН БУДЕ ОСТАННІМ)
             cur.execute("SELECT id, file_name FROM tasks WHERE batch_id=? ORDER BY id ASC", (b_id,))
             tasks = cur.fetchall()
 
-            if len(tasks) != 2:
-                print(f"!!! Пачка {b_id} має {len(tasks)} фото. Потрібно рівно 2.")
+            if len(tasks) < 2:
+                print(f"!!! Пачка {b_id} містить мало файлів ({len(tasks)}). Треба мінімум 1 об'єкт + 1 фон.")
                 conn.execute("UPDATE tasks SET status='error' WHERE batch_id=?", (b_id,))
-                conn.commit();
+                conn.commit()
                 continue
 
-            # Ставимо статус PROCESSING для всієї пачки
+            # Розподіляємо ролі: остання фотографія — фон, решта — об'єкти
+            bg_row = tasks[-1]
+            obj_rows = tasks[:-1]
+
+            bg_task_id, bg_file_name = bg_row
+            bg_path = os.path.join(INPUT_DIR, bg_file_name)
+
+            print(f"\n[{MY_FUNC.upper()}] Початок батчу: {b_id} (Об'єктів: {len(obj_rows)})")
+
+            # Міняємо статус на processing для всього батчу
             conn.execute("UPDATE tasks SET status='processing' WHERE batch_id=?", (b_id,))
             conn.commit()
 
-            # Розподіляємо: перше - ФОН, друге - ОБ'ЄКТ
-            bg_task_id, bg_file = tasks[0]
-            obj_task_id, obj_file = tasks[1]
-
-            bg_path = os.path.join(INPUT_DIR, bg_file)
-            obj_path = os.path.join(INPUT_DIR, obj_file)
-
-            output_name = f"final_{obj_file}"
-            output_path = os.path.join(OUTPUT_DIR, output_name)
-
             try:
-                print(f"🚀 Обробка пари: фон {bg_file} + об'єкт {obj_file}")
+                # 3. Відкриваємо файл фону один раз на весь батч
+                with Image.open(bg_path).convert("RGBA") as bg_raw:
 
-                # 1. Відкриваємо об'єкт і видаляємо фон
-                input_img = Image.open(obj_path).convert("RGBA")
-                no_bg_img = remove(input_img, session=session)
+                    for task_id, obj_file_name in obj_rows:
+                        obj_path = os.path.join(INPUT_DIR, obj_file_name)
+                        output_name = f"final_{obj_file_name}"
+                        output_path = os.path.join(OUTPUT_DIR, output_name)
 
-                # 2. Відкриваємо новий фон
-                with Image.open(bg_path).convert("RGBA") as bg_img:
-                    # Масштабуємо фон під розмір об'єкта
-                    bg_resized = bg_img.resize(input_img.size, Image.LANCZOS)
-                    # Накладаємо об'єкт без фону
-                    bg_resized.paste(no_bg_img, (0, 0), no_bg_img)
-                    # Зберігаємо
-                    bg_resized.convert("RGB").save(output_path, "JPEG", quality=95)
+                        print(f"   >>> Обробка об'єкта: {obj_file_name}")
 
-                # 3. ФІНАЛ: Тільки ОБ'ЄКТУ ставимо 'done' та шлях.
-                # ФОНУ просто ставимо статус 'processed', щоб сендер його проігнорував
-                conn.execute("UPDATE tasks SET status='done', output_name=? WHERE id=?", (output_name, obj_task_id))
-                conn.execute("UPDATE tasks SET status='processed' WHERE id=?",
-                             (bg_task_id,))  # processed не тригерить сендер
+                        # А) Видаляємо фон з об'єкта
+                        with Image.open(obj_path).convert("RGBA") as obj_img:
+                            # AI робота
+                            no_bg_obj = remove(obj_img, session=ai_session)
 
-                print(f"✅ Успішно створено: {output_name}")
-                os.remove(bg_path);
-                os.remove(obj_path)
+                            # Б) Масштабуємо фон під розмір об'єкта
+                            bg_canvas = bg_raw.resize(obj_img.size, Image.LANCZOS)
+
+                            # В) Накладаємо вирізаний об'єкт на фон
+                            # Використовуємо no_bg_obj як маску для прозорості
+                            bg_canvas.paste(no_bg_obj, (0, 0), no_bg_obj)
+
+                            # Г) Зберігаємо як високоякісний JPEG або PNG
+                            bg_canvas.convert("RGB").save(output_path, "JPEG", quality=95)
+
+                        # Д) Статус успіху для ОБ'ЄКТА
+                        conn.execute("UPDATE tasks SET status='done', output_name=? WHERE id=?", (output_name, task_id))
+                        os.remove(obj_path)
+
+                # 4. ФОН оброблено — ставимо 'processed' (не шлемо його юзеру)
+                conn.execute("UPDATE tasks SET status='processed' WHERE id=?", (bg_task_id,))
+                os.remove(bg_path)
+                print(f"✨ Бандл {b_id} готовий для Сендера.")
 
             except Exception as e:
-                print(f"❌ Помилка в обробці: {e}")
+                print(f"❌ ПОМИЛКА БАТЧУ {b_id}: {e}")
                 conn.execute("UPDATE tasks SET status='error' WHERE batch_id=?", (b_id,))
 
             conn.commit()
@@ -94,4 +112,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as top_e:
+        print(f"КРИТИЧНИЙ ЗБІЙ СКРИПТА: {top_e}")

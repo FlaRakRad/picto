@@ -8,11 +8,10 @@ from locales.i18n import get_t
 from database.requests import get_user_data, add_task
 
 router = Router()
-# Сховище для ID фотографій (у оперативці)
-storage = {}  # {uid: [file_id1, file_id2, ...]}
+storage = {}  # Тимчасове сховище ID файлів у RAM
 
 
-# --- 1. ПРИЙОМ ФОТОГРАФІЙ ---
+# --- 1. ПРИЙОМ ОСНОВНИХ ФОТО (ОБ'ЄКТІВ) ---
 @router.message(F.photo, ProcessState.waiting_for_photos)
 async def handle_photo(message: Message, state: FSMContext):
     uid = message.from_user.id
@@ -21,19 +20,16 @@ async def handle_photo(message: Message, state: FSMContext):
     storage[uid].append(message.photo[-1].file_id)
     captured_count = len(storage[uid])
 
-    # Чекаємо 3 секунди на довантаження пачки
     await asyncio.sleep(3)
 
-    # Якщо за цей час прийшли нові фото - цей "потік" закриваємо
     if uid not in storage or len(storage[uid]) > captured_count:
         return
 
-    # Пачка зібрана - забираємо ID і очищуємо RAM-сховище
     photo_ids = storage.pop(uid)
     user_info = get_user_data(uid)
     lang = user_info[3] if user_info else 'en'
 
-    # Зберігаємо список ID у стані юзера
+    # Зберігаємо список ID у стані
     await state.update_data(photo_ids=photo_ids, lang=lang)
 
     m = await message.answer(
@@ -44,19 +40,16 @@ async def handle_photo(message: Message, state: FSMContext):
     await state.set_state(ProcessState.ready_to_start)
 
 
-# --- 2. ДОПОМІЖНА ФУНКЦІЯ ЗАВАНТАЖЕННЯ (RUN LOGIC) ---
+# --- 2. ДОПОМІЖНА ФУНКЦІЯ (ДЛЯ UPSCALER / MIRROR) ---
 async def run_common_logic(callback: CallbackQuery, state: FSMContext, bot: Bot, func_name: str):
     uid = callback.from_user.id
     data = await state.get_data()
     lang, p_ids = data.get('lang', 'en'), data.get('photo_ids', [])
 
-    # Пріоритет: 1 для VIP, 0 для безкоштовних
     user_data = get_user_data(uid)
     priority = 1 if (user_data and user_data[2] > 1) else 0
-    # Генеруємо Batch ID для всієї пачки
     batch_id = f"b_{uuid.uuid4().hex[:6]}"
 
-    # Очищуємо чат (видаляємо кнопку)
     try:
         await bot.delete_message(uid, data.get('msg_to_del'))
     except:
@@ -64,55 +57,81 @@ async def run_common_logic(callback: CallbackQuery, state: FSMContext, bot: Bot,
 
     await callback.message.answer(get_t(lang, 'processing', count=len(p_ids)))
 
-    # Шляхи до папок
-    base_path = os.getcwd()
-    target_dir = os.path.join(base_path, "tmp", func_name, "input")
+    target_dir = os.path.join(os.getcwd(), "tmp", func_name, "input")
     os.makedirs(target_dir, exist_ok=True)
-    os.makedirs(os.path.join(base_path, "tmp", func_name, "output"), exist_ok=True)
+    os.makedirs(os.path.join(os.getcwd(), "tmp", func_name, "output"), exist_ok=True)
 
-    print(f"[SYSTEM] 📂 Юзер {uid} | Функція: {func_name} | Фото: {len(p_ids)}")
-
-    # Качаємо файли напряму
+    # Пряме завантаження
     for p_id in p_ids:
         unique_name = f"{uid}_{uuid.uuid4().hex[:6]}.png"
         path = os.path.join(target_dir, unique_name)
+        f_info = await bot.get_file(p_id)
+        await bot.download_file(f_info.file_path, path)
+        add_task(uid, unique_name, func_name, priority, batch_id)
 
-        try:
-            file_info = await bot.get_file(p_id)
-            await bot.download_file(file_info.file_path, path)
-            # Додаємо завдання в базу з batch_id
-            add_task(uid, unique_name, func_name, priority, batch_id)
-        except Exception as e:
-            print(f"[ERROR] Помилка завантаження файлу: {e}")
-
-    # Запускаємо воркер через ОС
-    worker_script = os.path.join(base_path, "modules", f"{func_name}.py")
+    # Пуск воркера
+    worker_script = os.path.join(os.getcwd(), "modules", f"{func_name}.py")
     if os.path.exists(worker_script):
         subprocess.Popen([sys.executable, worker_script])
-        print(f"[SYSTEM] ✅ Воркер {func_name}.py запущено.")
-    else:
-        print(f"[CRITICAL] ❌ Файл воркера {worker_script} не знайдено!")
 
     await state.clear()
 
 
-# --- 3. ОБРОБНИК ДЛЯ BGCHANGER (Валідація 2-х фото) ---
+# --- 3. ЛОГІКА BGCHANGER (ПЕРЕХІД ДО ОЧІКУВАННЯ ФОНУ) ---
 @router.callback_query(F.data == "func:bgchanger", ProcessState.ready_to_start)
-async def check_bgchanger_logic(callback: CallbackQuery, state: FSMContext):
+async def ask_for_bg(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     data = await state.get_data()
-    p_ids = data.get('photo_ids', [])
     lang = data.get('lang', 'en')
 
-    # Якщо юзер кинув не 2 фото - шлемо алерт
-    if len(p_ids) != 2:
-        await callback.message.answer(get_t(lang, 'bg_err_count'))
-        return
+    # Просимо юзера скинути фон (Додай цей ключ у locales/uk.py: 'bg_send_new')
+    await callback.message.edit_text(get_t(lang, 'bg_send_new'))
 
-    await run_common_logic(callback, state, callback.bot, "bgchanger")
+    # Змінюємо стан на очікування фону
+    await state.set_state(ProcessState.waiting_for_background)
 
 
-# --- 4. ОБРОБНИК ДЛЯ ІНШИХ ФУНКЦІЙ (Стандарт) ---
+# --- 4. ПРИЙОМ ФОНУ ТА ФІНАЛЬНИЙ СТАРТ ---
+@router.message(F.photo, ProcessState.waiting_for_background)
+async def handle_background(message: Message, state: FSMContext, bot: Bot):
+    uid = message.from_user.id
+    bg_file_id = message.photo[-1].file_id
+
+    data = await state.get_data()
+    obj_ids = data.get('photo_ids', [])  # Ті самі об'єкти, що юзер кинув раніше
+    lang = data.get('lang', 'en')
+
+    user_data = get_user_data(uid)
+    priority = 1 if (user_data and user_data[2] > 1) else 0
+    batch_id = f"bg_{uuid.uuid4().hex[:6]}"
+
+    await message.answer(get_t(lang, 'processing', count=len(obj_ids)))
+
+    # Папки для bgchanger
+    target_dir = os.path.join(os.getcwd(), "tmp", "bgchanger", "input")
+    os.makedirs(target_dir, exist_ok=True)
+    os.makedirs(os.path.join(os.getcwd(), "tmp", "bgchanger", "output"), exist_ok=True)
+
+    # А) Качаємо ОБ'ЄКТИ спочатку (щоб ID в БД були менші)
+    for idx, p_id in enumerate(obj_ids):
+        name = f"{uid}_{idx}_obj_{uuid.uuid4().hex[:4]}.png"
+        path = os.path.join(target_dir, name)
+        await bot.download_file((await bot.get_file(p_id)).file_path, path)
+        add_task(uid, name, "bgchanger", priority, batch_id)
+
+    # Б) Качаємо ФОН останнім (він буде rows[-1] у воркері)
+    bg_name = f"{uid}_final_BG_{uuid.uuid4().hex[:4]}.png"
+    await bot.download_file((await bot.get_file(bg_file_id)).file_path, os.path.join(target_dir, bg_name))
+    add_task(uid, bg_name, "bgchanger", priority, batch_id)
+
+    # В) Запуск воркера
+    subprocess.Popen([sys.executable, os.path.join(os.getcwd(), "modules", "bgchanger.py")])
+
+    await state.clear()
+    print(f"[SYSTEM] Пачка {batch_id} (фон+об'єкти) готова до ШІ.")
+
+
+# --- 5. ОБРОБНИК ІНШИХ ФУНКЦІЙ (Upscaler / Mirror) ---
 @router.callback_query(F.data.startswith("func:"), ProcessState.ready_to_start)
 async def other_functions_logic(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
