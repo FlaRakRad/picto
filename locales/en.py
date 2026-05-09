@@ -1,4 +1,6 @@
 text = {
+    'btn_support': "🆘 SUPPORT",   # або англійською "🆘 SUPPORT"
+    'btn_feedback': "⭐️ REVIEWS",     # або "⭐️ REVIEWS"
     'lang_name': "🇺🇸 English",
     'start': "👋 **Welcome!** I am PictoBot. I enhance your photos using AI.\nChoose your language to continue:",
     'main_menu': "🏠 Main menu. What would you like to do?",
