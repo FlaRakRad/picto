@@ -50,4 +50,9 @@ text = {
 
     'batch_limit_error': "⚠️ **Переліміт!**\nУ вас залишилось лише **{limit}** фото у цьому циклі, а ви надіслали **{count}**.\n\nПоповнення відбудеться: **{time}**\n*(через {minutes} хв)*",
     'next_cycle': "🔄 Ліміти поповнюються щогодини.\nВаше наступне поповнення: **{time}**",
+    'pay_crypto_desc': "💸 **Crypto Pay**: `{amount} USDT`\nВаш ID: `{invoice_id}`",
+    'stars_bill_title': "VIP Статус - PictoBot",
+    'stars_bill_desc': "Активація плану на {months} міс.",
+    'sub_active_msg': "✅ **VIP активовано!**\nВаш ліміт тепер: **{limit}** фото за годинний цикл.",
+    'pay_wait_crypto': "⌛ Оплата поки не знайдена... Спробуйте через хвилину.",
 }
