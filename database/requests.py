@@ -8,6 +8,52 @@ def get_conn():
     return conn
 
 
+def db_check():
+    conn = get_conn()
+    conn.execute("PRAGMA journal_mode=WAL;")
+
+    # 1. Створюємо базові таблиці (якщо їх взагалі немає)
+    conn.execute("""CREATE TABLE IF NOT EXISTS users(user_id INTEGER PRIMARY KEY, user_name TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY AUTOINCREMENT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS transactions(id INTEGER PRIMARY KEY AUTOINCREMENT)""")
+
+    # 2. АВТО-МІГРАЦІЯ (Додаємо відсутні колонки автоматично)
+    def add_col(table, col, data_type):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {data_type}")
+            print(f"[DB] Додано колонку {col} в таблицю {table}")
+        except:
+            pass  # Якщо колонка вже є, SQLite видасть помилку, ми її ігноруємо
+
+    # Колонки для USERS
+    add_col("users", "user_name", "TEXT")
+    add_col("users", "cycle_date", "TEXT")
+    add_col("users", "cycle_limit", "INTEGER DEFAULT 1")
+    add_col("users", "max_cycle_limit", "INTEGER DEFAULT 1")
+    add_col("users", "lang", "TEXT DEFAULT 'en'")
+    add_col("users", "sub_until", "TEXT")
+    add_col("users", "total_processed", "INTEGER DEFAULT 0")
+
+    # Колонки для TASKS
+    add_col("tasks", "user_id", "INTEGER")
+    add_col("tasks", "file_name", "TEXT")
+    add_col("tasks", "function", "TEXT")
+    add_col("tasks", "priority", "INTEGER DEFAULT 0")
+    add_col("tasks", "status", "TEXT DEFAULT 'pending'")
+    add_col("tasks", "output_name", "TEXT")
+    add_col("tasks", "batch_id", "TEXT")
+
+    # Колонки для TRANSACTIONS
+    add_col("transactions", "user_id", "INTEGER")
+    add_col("transactions", "amount", "REAL")
+    add_col("transactions", "currency", "TEXT")
+    add_col("transactions", "method", "TEXT")
+    add_col("transactions", "external_id", "TEXT")
+    add_col("transactions", "status", "TEXT DEFAULT 'pending'")
+
+    conn.commit()
+    print("[DB] Перевірка структури бази завершена. Дані в безпеці.")
+
 def db_init():
     conn = get_conn()
     conn.execute("PRAGMA journal_mode=WAL;")
@@ -49,10 +95,15 @@ def db_init():
     print("[DB] Всі таблиці (users, tasks, transactions) успішно ініціалізовані.")
 
 def get_user_data(user_id):
-    cur = get_conn().cursor()
-    cur.execute("SELECT cycle_limit, cycle_date, max_cycle_limit, lang FROM users WHERE user_id = ?", (user_id,))
+    conn = get_conn()
+    cur = conn.cursor()
+    # Цей список полів має бути ТАКИМ, бо інакше у тебе вискочить IndexError: tuple index out of range
+    cur.execute("""
+        SELECT cycle_limit, cycle_date, max_cycle_limit, lang, sub_until, total_processed 
+        FROM users 
+        WHERE user_id = ?
+    """, (user_id,))
     return cur.fetchone()
-
 
 def check_reset_limit(user_id):
     conn = get_conn()

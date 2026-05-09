@@ -3,11 +3,12 @@ from aiogram import Bot, Dispatcher
 import my_token
 from handlers.photo_handler import router as photo_router
 from handlers.common import router as common_router
-from database.requests import db_init
+from database.requests import db_init, db_check
 from handlers.billing_handler import router as billing_handler_router
 
 async def main():
     db_init()
+    db_check()
     # Автозапуск сендера
     subprocess.Popen([sys.executable, os.path.join("modules", "sender.py")])
 
