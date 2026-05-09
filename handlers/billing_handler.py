@@ -1,7 +1,7 @@
 import os, sys, uuid
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery
-from aiocryptopay import AioCryptoPay, Networks
+from aiocryptopay import    AioCryptoPay, Networks
 import config
 
 # Фікс шляхів
