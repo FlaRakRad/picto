@@ -27,3 +27,17 @@ def get_start_kb():
         [InlineKeyboardButton(text="🚀 ПОЧАТИ ОБРОБКУ", callback_data="start_process")]
     ])
 
+
+def get_payment_methods_kb(plan_id):
+    # plan_id - це кількість місяців
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data=f"meth:stars:{plan_id}")],
+        [InlineKeyboardButton(text="⚡ Crypto Pay", callback_data=f"meth:crypto:{plan_id}")],
+        [InlineKeyboardButton(text="💳 Карта (Visa/MC)", callback_data=f"meth:card:{plan_id}")]
+    ])
+
+def get_check_crypto_kb(invoice_id, plan_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Перевірити оплату", callback_data=f"check_crypto:{invoice_id}:{plan_id}")]
+    ])
+

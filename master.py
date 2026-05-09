@@ -4,7 +4,7 @@ import my_token
 from handlers.photo_handler import router as photo_router
 from handlers.common import router as common_router
 from database.requests import db_init
-
+from handlers.billing_handler import router as billing_handler_router
 
 async def main():
     db_init()
@@ -13,6 +13,8 @@ async def main():
 
     bot = Bot(token=my_token.TOKEN)
     dp = Dispatcher()
+
+    dp.include_router(billing_handler_router)
     dp.include_router(common_router)
     dp.include_router(photo_router)
 

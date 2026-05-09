@@ -1,18 +1,22 @@
-from aiogram import Router, F
-from aiogram.fsm.context import FSMContext  # ДОДАЙ ЦЕЙ РЯДОК
+from aiogram import Router, F, Bot
+from aiogram.fsm.context import FSMContext
 from handlers.fsm_states import ProcessState
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery
 from aiogram.filters import CommandStart
-from database.requests import upsert_user, set_user_lang, get_user_data, set_sub
+from database.requests import upsert_user, set_user_lang, get_user_data, set_sub, check_reset_limit
 from keyboards.main_menu import get_lang_kb, get_main_menu, get_sub_kb
 from locales.i18n import get_t, LANGUAGES
 
 router = Router()
 
+# Словник: ID плану -> Кількість фото за годинний цикл
+LIMITS_CONFIG = {1: 10, 3: 15, 6: 25, 12: 50}
+
 
 @router.message(CommandStart())
 @router.message(F.text.in_([LANGUAGES[l]['btn_lang'] for l in LANGUAGES]))
-async def cmd_start_or_lang(message: Message):
+async def cmd_start_or_lang(message: Message, state: FSMContext):
+    await state.clear()
     upsert_user(message.from_user.id, message.from_user.first_name)
     await message.answer("🌍 Choose your language / Оберіть мову:", reply_markup=get_lang_kb())
 
@@ -25,36 +29,57 @@ async def select_lang(callback: CallbackQuery):
     await callback.message.answer(get_t(lang, 'main_menu'), reply_markup=get_main_menu(lang))
 
 
-# Кнопка підписки
+# КНОПКА МІЙ ПРОФІЛЬ (Перевірка циклу)
+@router.message(F.text.in_([LANGUAGES[l]['btn_profile'] for l in LANGUAGES]))
+async def view_profile(message: Message):
+    uid = message.from_user.id
+    next_reset = check_reset_limit(uid)
+    u = get_user_data(uid)  # 0: limit, 1: date, 2: max, 3: lang
+
+    lang = u[3]
+    limit_text = get_t(lang, 'profile', limit=u[0], max=u[2])
+
+    # Додаємо час до стандартного повідомлення профілю
+    time_str = next_reset.strftime("%H:%M")
+    await message.answer(f"{limit_text}\n\n🕒 Наступне поповнення: **{time_str}**")
+
+
+# МЕНЮ ПІДПИСКИ
 @router.message(F.text.in_([LANGUAGES[l]['btn_sub'] for l in LANGUAGES]))
 async def sub_menu(message: Message):
     u = get_user_data(message.from_user.id)
-    lang = u[3] if u else 'en'
+    lang = u[3] or 'en'
+    # Тут використовуй inline-кнопки вибору оплати (Stars/Crypto)
+    # Поки для простоти відправляємо стандартне вікно підписки
     await message.answer(get_t(lang, 'sub_title'), reply_markup=get_sub_kb(lang))
 
 
-# Обробка вибору оплати (симуляція успішної оплати)
+# ОБРОБКА ТЕСТОВОЇ ОПЛАТИ (buy:1, buy:3 ...)
 @router.callback_query(F.data.startswith("buy:"))
 async def process_payment(callback: CallbackQuery):
-    months = int(callback.data.split(":")[1])
+    plan_id = int(callback.data.split(":")[1])
     uid = callback.from_user.id
 
-    # Викликаємо функцію з БД (вона вже в нас є)
-    set_sub(uid, months)
+    # Визначаємо новий макс_ліміт за обраним планом
+    new_max = LIMITS_CONFIG.get(plan_id, 10)
 
-    u = get_user_data(uid)
-    lang = u[3] if u else 'en'
+    # У цій версії - СИМУЛЯЦІЯ УСПІХУ ТА ОНОВЛЕННЯ ЛІМІТІВ
+    # В майбутньому тут буде виклик get_payment_methods_kb
+    set_sub(uid, plan_id, new_max)
 
+    u = get_user_data(uid);
+    lang = u[3] or 'en'
     await callback.message.edit_text(get_t(lang, 'sub_success'))
     await callback.answer()
 
 
+# КНОПКА ОБРОБКИ
 @router.message(F.text.in_([LANGUAGES[l]['btn_process'] for l in LANGUAGES]))
 async def start_process_mode(message: Message, state: FSMContext):
     u = get_user_data(message.from_user.id)
-    lang = u[3] if u else 'en'
-
-    print(f"\n[MENU] >>> Юзер {message.from_user.id} увімкнув режим ОБРОБКИ")
+    check_reset_limit(message.from_user.id)  # Важливо оновити перед роботою
 
     await state.set_state(ProcessState.waiting_for_photos)
-    await message.answer("📸 " + get_t(lang, 'btn_process') + ": Send me one or multiple photos now!")
+    await message.answer("📸 " + get_t(u[3], 'btn_process') + ": Send photos now!")
+
+
